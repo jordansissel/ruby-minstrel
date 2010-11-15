@@ -51,7 +51,6 @@ module Minstrel; class Instrument
         method = method.to_sym
         #block.call(:wrap, klass, method)
         define_method(method) do |*args, &argblock|
-          puts "call #{klass.name}##{method}(#{args.inspect}, #{block_given?})"
           block.call(:enter, klass, method, *args)
           exception = false
           begin
