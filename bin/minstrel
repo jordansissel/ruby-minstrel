@@ -5,4 +5,21 @@ require "minstrel"
 
 $0 = ARGV[0]
 ARGV.shift
-load $0
+begin
+  load $0
+rescue LoadError => e
+  if File.basename($0) == $0 # if the file is just a name, not a path.
+    found = false
+    ENV["PATH"].split(":").each do  |path|
+      file = "#{path}/#{$0}"
+      if File.exists?(file)
+        load file
+        found = true
+      end
+    end
+
+    raise e if !found
+  else
+    raise e
+  end
+end
