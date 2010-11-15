@@ -13,6 +13,8 @@ Gem::Specification.new do |spec|
   spec.description = "Instrument class methods"
   spec.files = files
   spec.require_paths << "lib"
+  spec.bindir = "bin"
+  spec.executables << "minstrel"
 
   spec.author = "Jordan Sissel"
   spec.email = "jls@semicomplete.com"
