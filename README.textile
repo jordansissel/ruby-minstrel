@@ -1,0 +1,72 @@
+h1. Ruby Minstrel
+
+Minstrel allows you to wrap every method call for a given class so you can more
+easily observe how a class and its methods are being used.
+
+h2. Why?
+
+Fun. Also, sometimes ruby-prof and similar tools are overkill when I am trying
+to debug or dig into how a piece of code works.
+
+h2. Examples
+
+h3. From the commandline
+
+You can use minstrel to wrap classes with a default 'print' wrapper that simply
+prints what is called.  For example:
+
+<pre>
+% RUBY_INSTRUMENT=String ruby -rminstrel -e 'puts "hello world".capitalize.reverse'
+String#capitalize([])
+String#reverse([])
+dlrow olleH
+</pre>
+
+h3. From ruby
+
+Boilerplate:
+<pre>
+require "minstrel"
+
+instrument = Minstrel::Instrument.new()
+instrument.wrap(String) do |point, klass, method, *args|
+  # * point is either :enter or :exit depending if this function is about to be
+  #   called or has finished being called.
+  # * klass is the class object (String, etc)
+  # * method is the method (a Symbol)
+  # * *args is the arguments passed
+</pre>
+
+Example:
+<pre>
+require "minstrel"
+
+class Foo
+  def bar(one, &block)
+    yield one
+  end
+  
+  def baz
+    puts "Baz!"
+  end 
+end
+
+instrument = Minstrel::Instrument.new
+instrument.wrap(Foo) do |point, klass, method, *args|
+  puts "#{point} #{klass.name}##{method}(#{args.inspect})"
+end
+
+foo = Foo.new
+foo.bar(123) { |arg| puts arg }
+foo.baz
+</pre>
+
+Output:
+<pre>
+enter Foo#bar([123])
+123
+exit Foo#bar([123])
+enter Foo#baz([])
+Baz!
+exit Foo#baz([])
+</pre>

@@ -15,14 +15,14 @@ module Minstrel; class Instrument
     klass.instance_methods.each do |method|
       next if DONOTWRAP.include?(method.to_sym)
       klass.class_eval do
-        orig_method = "#{method}_wrap_#{@counter}".to_sym
+        orig_method = "#{method}_original(wrapped)".to_sym
         alias_method orig_method, method.to_sym
         instrumenter.counter += 1
         method = method.to_sym
-        define_method(method) do |*args|
-          block.call(:start, klass, method, *args)
-          val = send(orig_method, *args)
-          block.call(:end, klass, method, *args)
+        define_method(method) do |*args, &argblock|
+          block.call(:enter, klass, method, *args)
+          val = send(orig_method, *args, &argblock)
+          block.call(:exit, klass, method, *args)
           return val
         end
       end # klass.class_eval
@@ -32,11 +32,13 @@ end; end # class Minstrel::Instrument
 
 # Provide a way to instrument a class using the command line:
 # RUBY_INSTRUMENT=String ruby -rminstrel ./your/program
-ENV["RUBY_INSTRUMENT"].split(",").each do |klassname|
-  instrument = Minstrel::Instrument.new 
-  klass = eval(klassname)
-  instrument.wrap(klass) do |point, klass, method, *args|
-    next if point == :end
-    puts "#{klass.name}##{method}(#{args.length} args...)"
+if ENV["RUBY_INSTRUMENT"]
+  ENV["RUBY_INSTRUMENT"].split(",").each do |klassname|
+    instrument = Minstrel::Instrument.new 
+    klass = eval(klassname)
+    instrument.wrap(klass) do |point, klass, method, *args|
+      next if point == :end
+      puts "#{point} #{klass.name}##{method}(#{args.inspect})"
+    end
   end
 end
