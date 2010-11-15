@@ -25,6 +25,7 @@ dlrow olleH
 h3. From ruby
 
 Boilerplate:
+
 <pre>
 require "minstrel"
 
@@ -35,6 +36,7 @@ end
 </pre>
 
 Example:
+
 <pre>
 require "minstrel"
 
