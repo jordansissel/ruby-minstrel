@@ -151,7 +151,7 @@ if ENV["RUBY_INSTRUMENT"]
   ENV["RUBY_INSTRUMENT"].split(",").each do |klassname|
     instrument = Minstrel::Instrument.new 
     instrument.wrap_classname(klassname) do |point, klass, method, *args|
-      puts "#{point} #{klass.name}##{method}(#{args.inspect})"
+      puts "#{point} #{klass.name || klassname}##{method}(#{args.inspect})"
     end
   end
 end
