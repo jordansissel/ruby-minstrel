@@ -3,6 +3,13 @@ h1. Ruby Minstrel
 Minstrel allows you to wrap every method call for a given class so you can more
 easily observe how a class and its methods are being used.
 
+h2. Get it
+
+* gem install minstrel
+* or download versions here: http://rubygems.org/gems/minstrel
+* or github: https://github.com/jordansissel/ruby-minstrel
+
+
 h2. Why?
 
 Fun. Also, sometimes ruby-prof and similar tools are overkill when I am trying
