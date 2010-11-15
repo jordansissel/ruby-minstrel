@@ -34,9 +34,9 @@ dlrow olleH
 
 h3. The 'minstrel' tool
 
-Since this doesn't work as expected in ruby 1.8 (or maybe all rubies): ruby
--rrubygems -rminstrel ..., I provide 'minstrel' as a way to run ruby programs
-with minstrel preloaded.
+Since the following doesn't work as expected in ruby 1.8 (or maybe all rubies):
+ruby -rrubygems -rminstrel ..., I provide 'minstrel' as a way to run ruby
+programs with minstrel preloaded.
 
 <pre>
 % cat test.rb                            
