@@ -25,8 +25,29 @@ prints what is called.  For example:
 
 <pre>
 % RUBY_INSTRUMENT=String ruby -rminstrel -e 'puts "hello world".capitalize.reverse'
-String#capitalize([])
-String#reverse([])
+enter String#capitalize([])
+exit String#capitalize([])
+enter String#reverse([])
+exit String#reverse([])
+dlrow olleH
+</pre>
+
+h3. The 'minstrel' tool
+
+Since this doesn't work as expected in ruby 1.8 (or maybe all rubies): ruby
+-rrubygems -rminstrel ..., I provide 'minstrel' as a way to run ruby programs
+with minstrel preloaded.
+
+<pre>
+% cat test.rb                            
+#!/usr/bin/env ruby
+puts "hello world".capitalize.reverse
+
+% RUBY_INSTRUMENT=String minstrel test.rb
+enter String#capitalize([])
+exit String#capitalize([])
+enter String#reverse([])
+exit String#reverse([])
 dlrow olleH
 </pre>
 
@@ -82,3 +103,18 @@ enter Foo#baz([])
 Baz!
 exit Foo#baz([])
 </pre>
+
+h3. From ruby (deferred loading)
+
+Sometimes you don't know when a class is going to be defined. To solve this,
+you must use Minstrel::Instrument#wrap_classname. For example:
+
+<pre>
+>> require "minstrel"
+>> Minstrel::Instrument.new.wrap_classname("TCPSocket")
+>> require "socket"
+Wrap of TCPSocket successful
+</pre>
+
+Minstrel will wrap 'require' and check for classes you want wrapped at each
+require until it finds all the classes you asked to be wrapped.
