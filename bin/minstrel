@@ -3,4 +3,6 @@
 require "rubygems"
 require "minstrel"
 
-load ARGV[0]
+$0 = ARGV[0]
+ARGV.shift
+load $0
