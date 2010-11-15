@@ -23,11 +23,13 @@ module Minstrel; class Instrument
   end
 
   # Put methods we must not be wrapping here.
-  DONOTWRAP = [Kernel, Object, Module, Class,
-               Minstrel::Instrument].collect do |obj|
+  #DONOTWRAP = #[Kernel, Object, Module, Class,
+  DONOTWRAP = [Minstrel::Instrument].collect do |obj|
     obj.methods.collect { |m| m.to_sym }
   end.flatten
   DONOTWRAP << :to_sym
+  DONOTWRAP << :respond_to?
+  DONOTWRAP << :send
 
   # Wrap a class's instance methods with your block.
   # The block will be called with 4 arguments, and called
@@ -38,7 +40,7 @@ module Minstrel; class Instrument
   #   * method - the method (symbol) being called
   #   * *args - the arguments (array) passed to this method.
   def wrap(klass, &block)
-    puts "Instrumenting #{klass.name} with #{block.inspect}"
+    #puts "Instrumenting #{klass.name} with #{block.inspect}"
     instrumenter = self
 
     klass.instance_methods.each do |method|
@@ -47,16 +49,62 @@ module Minstrel; class Instrument
         orig_method = "#{method}_original(wrapped)".to_sym
         alias_method orig_method, method.to_sym
         method = method.to_sym
-        block.call(:wrap, klass, method)
+        #block.call(:wrap, klass, method)
         define_method(method) do |*args, &argblock|
           puts "call #{klass.name}##{method}(#{args.inspect}, #{block_given?})"
           block.call(:enter, klass, method, *args)
-          m = self.method(orig_method)
-          val = m.call(*args, &argblock)
-          #val = send(orig_method, *args, &argblock)
-          block.call(:exit, klass, method, *args)
+          exception = false
+          begin
+            m = self.method(orig_method)
+            val = m.call(*args, &argblock)
+          rescue => e
+            exception = e
+          end
+          if exception
+            block.call(:exit_exception, klass, method, *args)
+            raise e if exception
+          else
+            block.call(:exit, klass, method, *args)
+          end
           return val
         end
+      end # klass.class_eval
+    end # klass.instance_methods.each
+
+    klass.methods.each do |method|
+      next if DONOTWRAP.include?(method.to_sym)
+      klass.instance_eval do
+        orig_method = "#{method}_original(classwrapped)".to_sym
+        (class << self; self; end).instance_eval do
+          begin
+            alias_method orig_method, method.to_sym
+          rescue NameError => e
+            # No such method, strange but true.
+            orig_method = self.method(method.to_sym)
+          end
+          method = method.to_sym
+          define_method(method) do |*args, &argblock|
+            block.call(:class_enter, klass, method, *args)
+            exception = false
+            begin
+              if orig_method.is_a?(Symbol)
+                val = send(orig_method, *args, &argblock)
+              else
+                val = orig_method.call(*args, &argblock)
+              end
+            rescue => e
+              exception = e
+            end
+            if exception
+              block.call(:class_exit_exception, klass, method, *args)
+              raise e if exception
+            else
+              block.call(:class_exit, klass, method, *args)
+            end
+            return val
+          end
+        end
+        #block.call(:class_wrap, klass, method, self.method(method))
       end # klass.class_eval
     end # klass.instance_methods.each
   end # def wrap
