@@ -1,4 +1,20 @@
-
+# Wrap method calls for a class of your choosing.
+# Example:
+# instrument = Minstrel::Instrument.new()
+# instrument.wrap(String) do |point, klass, method, *args|
+#   ...
+# end
+#
+#  * point is either :enter or :exit depending if this function is about to be
+#    called or has finished being called.
+#  * klass is the class object (String, etc)
+#  * method is the method (a Symbol)
+#  * *args is the arguments passed
+#
+# You can also wrap from the command-line
+#
+# RUBY_INSTRUMENT=comma_separated_classnames ruby -rminstrel ./your/program.rb
+#
 module Minstrel; class Instrument
   attr_accessor :counter
 
@@ -8,6 +24,14 @@ module Minstrel; class Instrument
   end.flatten
   DONOTWRAP << :to_sym
 
+  # Wrap a class's instance methods with your block.
+  # The block will be called with 4 arguments, and called
+  # before and after the original method.
+  # Arguments:
+  #   * point - the point (symbol, :entry or :exit) of call
+  #   * klass - the class (object) owning this method
+  #   * method - the method (symbol) being called
+  #   * *args - the arguments (array) passed to this method.
   def wrap(klass, &block)
     instrumenter = self
     self.counter = 0
