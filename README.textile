@@ -9,11 +9,12 @@ h2. Get it
 * or download versions here: http://rubygems.org/gems/minstrel
 * or github: https://github.com/jordansissel/ruby-minstrel
 
-
 h2. Why?
 
 Fun. Also, sometimes ruby-prof and similar tools are overkill when I am trying
 to debug or dig into how a piece of code works.
+
+It's a lot like strace/tcpdump/dtrace for ruby, or aims to be, anyway.
 
 h2. Examples
 
