@@ -30,11 +30,8 @@ require "minstrel"
 
 instrument = Minstrel::Instrument.new()
 instrument.wrap(String) do |point, klass, method, *args|
-  # * point is either :enter or :exit depending if this function is about to be
-  #   called or has finished being called.
-  # * klass is the class object (String, etc)
-  # * method is the method (a Symbol)
-  # * *args is the arguments passed
+  ...
+end
 </pre>
 
 Example:
