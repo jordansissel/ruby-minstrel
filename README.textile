@@ -61,6 +61,7 @@ foo.baz
 </pre>
 
 Output:
+
 <pre>
 enter Foo#bar([123])
 123
