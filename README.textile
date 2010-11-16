@@ -51,6 +51,22 @@ exit String#reverse([])
 dlrow olleH
 </pre>
 
+h4. Example: Tracing puppet storeconfigs (aka Tracing ActiveRecord queries)
+
+ActiveRecord has a base class for most things query-related. Let's trace that:
+
+<pre>
+% sudo env RUBY_INSTRUMENT=ActiveRecord::ConnectionAdapters::DatabaseStatements minstrel puppet ...
+enter ActiveRecord::ConnectionAdapters::DatabaseStatements#select_all(["SELECT     DISTINCT 
+`hosts`.id FROM       `hosts`  LEFT OUTER JOIN `fact_values` ON `fact_values`.`host_id` = `h
+osts`.`id` LEFT OUTER JOIN `fact_names` ON `fact_names`.`id` = `fact_values`.`fact_name_id` 
+...
+enter ActiveRecord::ConnectionAdapters::DatabaseStatements#select_all(["SELECT     `hosts`.`id` AS t0_r0, `hosts`.`name` AS t0_r1, `hosts`.`ip` AS t0_r2, `hosts`.`environment ...
+</pre>
+
+So easy :)
+
+
 h3. From ruby
 
 Boilerplate:
@@ -118,3 +134,5 @@ Wrap of TCPSocket successful
 
 Minstrel will wrap 'require' and check for classes you want wrapped at each
 require until it finds all the classes you asked to be wrapped.
+
+
