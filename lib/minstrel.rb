@@ -47,8 +47,8 @@ module Minstrel; class Instrument
       next if DONOTWRAP.include?(method.to_sym)
       klass.class_eval do
         orig_method = "#{method}_original(wrapped)".to_sym
-        alias_method orig_method, method.to_sym
         method = method.to_sym
+        alias_method orig_method, method
         #block.call(:wrap, klass, method)
         define_method(method) do |*args, &argblock|
           block.call(:enter, klass, method, *args)
