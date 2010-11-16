@@ -30,6 +30,9 @@ module Minstrel; class Instrument
   DONOTWRAP << :to_sym
   DONOTWRAP << :respond_to?
   DONOTWRAP << :send
+  DONOTWRAP << :java_send
+  DONOTWRAP << :method
+  DONOTWRAP << :java_method
 
   # Wrap a class's instance methods with your block.
   # The block will be called with 4 arguments, and called
@@ -48,14 +51,19 @@ module Minstrel; class Instrument
       klass.class_eval do
         orig_method = "#{method}_original(wrapped)".to_sym
         method = method.to_sym
+        orig_method_proc = klass.instance_method(method)
         alias_method orig_method, method
         #block.call(:wrap, klass, method)
         define_method(method) do |*args, &argblock|
-          block.call(:enter, klass, method, *args)
           exception = false
+          block.call(:enter, klass, method, *args)
           begin
-            m = self.method(orig_method)
-            val = m.call(*args, &argblock)
+            # TODO(sissel): Not sure which is better:
+            # * UnboundMethod#bind(self).call(...)
+            # * self.method(orig_method).call(...)
+            val = orig_method_proc.bind(self).call(*args, &argblock)
+            #m = self.method(orig_method)
+            #val = m.call(*args, &argblock)
           rescue => e
             exception = e
           end
@@ -106,6 +114,8 @@ module Minstrel; class Instrument
         #block.call(:class_wrap, klass, method, self.method(method))
       end # klass.class_eval
     end # klass.instance_methods.each
+
+    return true
   end # def wrap
 
   def wrap_classname(klassname, &block)
