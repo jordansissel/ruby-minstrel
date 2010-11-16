@@ -16,6 +16,10 @@ to debug or dig into how a piece of code works.
 
 It's a lot like strace/tcpdump/dtrace for ruby, or aims to be, anyway.
 
+I wanted a tool that was useful for my own code as well as for helping
+understand and debug other code (puppet, mcollective, rails, activerecord,
+sinatra, etc...).
+
 h2. Examples
 
 h3. From the commandline
@@ -135,4 +139,19 @@ Wrap of TCPSocket successful
 Minstrel will wrap 'require' and check for classes you want wrapped at each
 require until it finds all the classes you asked to be wrapped.
 
+h2. Caveats
 
+Metaprogramming will not be often caught, necessarily, by minstrel, because they don't
+show usuall up as methods. However, the things invoking metaprogramming are
+usually methods so in most cases you'll get lucky enough to see what's going
+on.
+
+Some cases of metaprogramming (dynamic method generation, DSLs, etc) can be
+caught if you call Minstrel::Instrument#wrap() late enough in the lifetime of
+the program that the dynamic methods have been created.
+
+h2. Bugs?
+
+If you find bugs, have feature suggestions, etc, feel free to open bugs here on
+github (https://github.com/jordansissel/ruby-minstrel/issues). I also read email:
+jls@semicomplete.com
