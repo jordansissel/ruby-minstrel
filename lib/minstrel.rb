@@ -15,42 +15,58 @@
 #
 # RUBY_INSTRUMENT=comma_separated_classnames ruby -rminstrel ./your/program.rb
 #
+
+require "set"
+
 module Minstrel; class Instrument
   attr_accessor :counter
 
   class << self
     @@deferred_wraps = {}
+    @@wrapped = Set.new
   end
 
   # Put methods we must not be wrapping here.
-  #DONOTWRAP = #[Kernel, Object, Module, Class,
-  DONOTWRAP = [Minstrel::Instrument].collect do |obj|
-    obj.methods.collect { |m| m.to_sym }
-  end.flatten
-  DONOTWRAP << :to_sym
-  DONOTWRAP << :respond_to?
-  DONOTWRAP << :send
-  DONOTWRAP << :java_send
-  DONOTWRAP << :method
-  DONOTWRAP << :java_method
+  DONOTWRAP = {
+    "Minstrel::Instrument" => Minstrel::Instrument.methods.collect { |m| m.to_sym },
+    "Object" => [ :to_sym, :respond_to?, :send, :java_send, :method, :java_method ],
+    "Class" => [ :to_s ],
+  }
 
   # Wrap a class's instance methods with your block.
   # The block will be called with 4 arguments, and called
   # before and after the original method.
   # Arguments:
-  #   * point - the point (symbol, :entry or :exit) of call
+  #   * point - the point (symbol, :entry or :exit) of call,
   #   * klass - the class (object) owning this method
   #   * method - the method (symbol) being called
   #   * *args - the arguments (array) passed to this method.
   def wrap(klass, &block)
-    #puts "Instrumenting #{klass.name} with #{block.inspect}"
-    instrumenter = self
+    return true if @@wrapped.include?(klass)
+    instrumenter = self # save 'self' for scoping below
+    p [klass, @@wrapped.include?(klass)]
+    @@wrapped << klass
 
     klass.instance_methods.each do |method|
-      next if DONOTWRAP.include?(method.to_sym)
+      method = method.to_sym
+
+      # If we shouldn't wrap a certain class method, skip it.
+      skip = false
+      ancestors = klass.ancestors.collect {|k| k.to_s} 
+      (ancestors & DONOTWRAP.keys).each do |key|
+        if DONOTWRAP[key].include?(method)
+          skip = true 
+          break
+        end
+      end
+      if skip
+        puts "Skipping #{klass}##{method} (do not wrap)"
+      end
+      next if skip
+
+      puts "Wrapping #{klass}##{method}"
       klass.class_eval do
         orig_method = "#{method}_original(wrapped)".to_sym
-        method = method.to_sym
         orig_method_proc = klass.instance_method(method)
         alias_method orig_method, method
         #block.call(:wrap, klass, method)
@@ -79,7 +95,21 @@ module Minstrel; class Instrument
     end # klass.instance_methods.each
 
     klass.methods.each do |method|
-      next if DONOTWRAP.include?(method.to_sym)
+      method = method.to_sym
+      # If we shouldn't wrap a certain class method, skip it.
+      skip = false
+      ancestors = klass.ancestors.collect {|k| k.to_s} 
+      (ancestors & DONOTWRAP.keys).each do |key|
+        if DONOTWRAP[key].include?(method)
+          skip = true 
+          break
+        end
+      end
+      if skip
+        puts "Skipping #{klass}##{method} (do not wrap)"
+      end
+      next if skip
+
       klass.instance_eval do
         orig_method = "#{method}_original(classwrapped)".to_sym
         (class << self; self; end).instance_eval do
@@ -129,6 +159,14 @@ module Minstrel; class Instrument
     return false
   end
 
+  def wrap_all(&block)
+    @@deferred_wraps[:all] = block
+    ObjectSpace.each_object do |obj|
+      next unless obj.is_a?(Class)
+      wrap(obj, &block)
+    end
+  end
+
   def self.wrap_require
     Kernel.class_eval do
       alias_method :old_require, :require
@@ -140,13 +178,22 @@ module Minstrel; class Instrument
 
   def self.instrumented_require(*args)
     ret = old_require(*args)
-    klasses = @@deferred_wraps.keys
-    klasses.each do |klassname|
-      block = @@deferred_wraps[klassname]
-      instrument = Minstrel::Instrument.new
-      if instrument.wrap_classname(klassname, &block)
-        puts "Wrap of #{klassname} successful"
-        @@deferred_wraps.delete(klassname)
+    if @@deferred_wraps.include?(:all)
+      # try to wrap anything new that is not wrapped
+      wrap_all(@@deferred_wraps[:all])
+    else
+      # look for deferred class wraps
+      klasses = @@deferred_wraps.keys
+      klasses.each do |klassname|
+        if @@deferred_wraps.include?("ALL")
+          all = true
+        end
+        block = @@deferred_wraps[klassname]
+        instrument = Minstrel::Instrument.new
+        if instrument.wrap_classname(klassname, &block)
+          $stderr.puts "Wrap of #{klassname} successful"
+          @@deferred_wraps.delete(klassname) if !all
+        end
       end
     end
     return ret
@@ -158,10 +205,18 @@ Minstrel::Instrument.wrap_require
 # Provide a way to instrument a class using the command line:
 # RUBY_INSTRUMENT=String ruby -rminstrel ./your/program
 if ENV["RUBY_INSTRUMENT"]
-  ENV["RUBY_INSTRUMENT"].split(",").each do |klassname|
+  klasses = ENV["RUBY_INSTRUMENT"].split(",")
+  if klasses.include?(":all:")
     instrument = Minstrel::Instrument.new 
-    instrument.wrap_classname(klassname) do |point, klass, method, *args|
-      puts "#{point} #{klass.name || klassname}##{method}(#{args.inspect})"
+    instrument.wrap_all do |point, klass, method, *args|
+      puts "#{point} #{klass.to_s}##{method}(#{args.inspect})"
+    end
+  else
+    klasses.each do |klassname|
+      instrument = Minstrel::Instrument.new 
+      instrument.wrap_classname(klassname) do |point, klass, method, *args|
+        puts "#{point} #{klassname}##{method}(#{args.inspect})"
+      end
     end
   end
 end
