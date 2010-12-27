@@ -28,9 +28,9 @@ module Minstrel; class Instrument
 
   # Put methods we must not be wrapping here.
   DONOTWRAP = {
-    "Minstrel::Instrument" => Minstrel::Instrument.methods.collect { |m| m.to_sym },
-    "Object" => [ :to_sym, :respond_to?, :send, :java_send, :method, :java_method ],
-    "Class" => [ :to_s ],
+    "Minstrel::Instrument" => Minstrel::Instrument.instance_methods.collect { |m| m.to_sym },
+    "Object" => [ :to_sym, :respond_to?, :send, :java_send, :method, :java_method,
+                  :ancestors, :inspect, :to_s, :instance_eval ],
   }
 
   # Wrap a class's instance methods with your block.
@@ -44,15 +44,19 @@ module Minstrel; class Instrument
   def wrap(klass, &block)
     return true if @@wrapped.include?(klass)
     instrumenter = self # save 'self' for scoping below
-    p [klass, @@wrapped.include?(klass)]
     @@wrapped << klass
+
+    ancestors = klass.ancestors.collect {|k| k.to_s } 
+    if ancestors.include?("Exception")
+      return true
+    end
+    #puts "Wrapping #{klass}"
 
     klass.instance_methods.each do |method|
       method = method.to_sym
 
       # If we shouldn't wrap a certain class method, skip it.
       skip = false
-      ancestors = klass.ancestors.collect {|k| k.to_s} 
       (ancestors & DONOTWRAP.keys).each do |key|
         if DONOTWRAP[key].include?(method)
           skip = true 
@@ -60,11 +64,10 @@ module Minstrel; class Instrument
         end
       end
       if skip
-        puts "Skipping #{klass}##{method} (do not wrap)"
+        #puts "Skipping #{klass}##{method} (do not wrap)"
+        next
       end
-      next if skip
 
-      puts "Wrapping #{klass}##{method}"
       klass.class_eval do
         orig_method = "#{method}_original(wrapped)".to_sym
         orig_method_proc = klass.instance_method(method)
@@ -72,6 +75,7 @@ module Minstrel; class Instrument
         #block.call(:wrap, klass, method)
         define_method(method) do |*args, &argblock|
           exception = false
+          #p args
           block.call(:enter, klass, method, *args)
           begin
             # TODO(sissel): Not sure which is better:
@@ -84,9 +88,11 @@ module Minstrel; class Instrument
             exception = e
           end
           if exception
+            # TODO(sissel): Include the exception
             block.call(:exit_exception, klass, method, *args)
             raise e if exception
           else
+            # TODO(sissel): Include the return value
             block.call(:exit, klass, method, *args)
           end
           return val
@@ -106,9 +112,9 @@ module Minstrel; class Instrument
         end
       end
       if skip
-        puts "Skipping #{klass}##{method} (do not wrap)"
+        #puts "Skipping #{klass}##{method} (do not wrap)"
+        next
       end
-      next if skip
 
       klass.instance_eval do
         orig_method = "#{method}_original(classwrapped)".to_sym
@@ -171,13 +177,22 @@ module Minstrel; class Instrument
     Kernel.class_eval do
       alias_method :old_require, :require
       def require(*args)
-        return Minstrel::Instrument::instrumented_require(*args)
+        return Minstrel::Instrument::instrumented_loader(:require, *args)
       end
     end
   end
 
-  def self.instrumented_require(*args)
-    ret = old_require(*args)
+  def self.wrap_load
+    Kernel.class_eval do
+      alias_method :old_load, :load
+      def load(*args)
+        return Minstrel::Instrument::instrumented_loader(:load, *args)
+      end
+    end
+  end
+
+  def self.instrumented_loader(method, *args)
+    ret = self.send(:"old_#{method}", *args)
     if @@deferred_wraps.include?(:all)
       # try to wrap anything new that is not wrapped
       wrap_all(@@deferred_wraps[:all])
@@ -201,6 +216,7 @@ module Minstrel; class Instrument
 end; end # class Minstrel::Instrument
 
 Minstrel::Instrument.wrap_require
+Minstrel::Instrument.wrap_load
 
 # Provide a way to instrument a class using the command line:
 # RUBY_INSTRUMENT=String ruby -rminstrel ./your/program
