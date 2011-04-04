@@ -30,7 +30,8 @@ module Minstrel; class Instrument
   DONOTWRAP = {
     "Minstrel::Instrument" => Minstrel::Instrument.instance_methods.collect { |m| m.to_sym },
     "Object" => [ :to_sym, :respond_to?, :send, :java_send, :method, :java_method,
-                  :ancestors, :inspect, :to_s, :instance_eval ],
+                  :ancestors, :inspect, :to_s, :instance_eval, :instance_exec,
+                  :class_eval, :class_exec, :module_eval, :module_exec],
   }
 
   # Wrap a class's instance methods with your block.
@@ -38,7 +39,7 @@ module Minstrel; class Instrument
   # before and after the original method.
   # Arguments:
   #   * point - the point (symbol, :entry or :exit) of call,
-  #   * klass - the class (object) owning this method
+  #   * this - the object instance in scope (use 'this.class' for the class)
   #   * method - the method (symbol) being called
   #   * *args - the arguments (array) passed to this method.
   def wrap(klass, &block)
@@ -50,8 +51,9 @@ module Minstrel; class Instrument
     if ancestors.include?("Exception")
       return true
     end
-    #puts "Wrapping #{klass}"
+    puts "Wrapping #{klass.class} #{klass}"
 
+    # Wrap class instance methods (like File#read)
     klass.instance_methods.each do |method|
       method = method.to_sym
 
@@ -73,10 +75,13 @@ module Minstrel; class Instrument
         orig_method_proc = klass.instance_method(method)
         alias_method orig_method, method
         #block.call(:wrap, klass, method)
+        puts "Wrapping #{klass.name}##{method} (method)"
+        if klass.is_a?(Module)
+          puts " -- Note, wrapping module methods is currently not working?"
+        end
         define_method(method) do |*args, &argblock|
           exception = false
-          #p args
-          block.call(:enter, klass, method, *args)
+          block.call(:enter, self, method, *args)
           begin
             # TODO(sissel): Not sure which is better:
             # * UnboundMethod#bind(self).call(...)
@@ -89,17 +94,18 @@ module Minstrel; class Instrument
           end
           if exception
             # TODO(sissel): Include the exception
-            block.call(:exit_exception, klass, method, *args)
+            block.call(:exit_exception, self, method, *args)
             raise e if exception
           else
             # TODO(sissel): Include the return value
-            block.call(:exit, klass, method, *args)
+            block.call(:exit, self, method, *args)
           end
           return val
-        end
+        end # define_method(method)
       end # klass.class_eval
     end # klass.instance_methods.each
 
+    # Wrap class methods (like File.open)
     klass.methods.each do |method|
       method = method.to_sym
       # If we shouldn't wrap a certain class method, skip it.
@@ -108,11 +114,19 @@ module Minstrel; class Instrument
       (ancestors & DONOTWRAP.keys).each do |key|
         if DONOTWRAP[key].include?(method)
           skip = true 
-          break
+          #break
         end
       end
+
+      # Doubly-ensure certain methods are not wrapped.
+      # Some classes like "Timeout" do not have ancestors.
+      if DONOTWRAP["Object"].include?(method)
+        #puts "!! Skipping #{klass}##{method} (do not wrap)"
+        skip = true
+      end
+
       if skip
-        #puts "Skipping #{klass}##{method} (do not wrap)"
+        puts "Skipping #{klass}##{method} (do not wrap, not safe)"
         next
       end
 
@@ -126,8 +140,9 @@ module Minstrel; class Instrument
             orig_method = self.method(method.to_sym)
           end
           method = method.to_sym
+          #puts "Wrapping #{klass.name}.#{method} (classmethod)"
           define_method(method) do |*args, &argblock|
-            block.call(:class_enter, klass, method, *args)
+            block.call(:class_enter, self, method, *args)
             exception = false
             begin
               if orig_method.is_a?(Symbol)
@@ -139,16 +154,16 @@ module Minstrel; class Instrument
               exception = e
             end
             if exception
-              block.call(:class_exit_exception, klass, method, *args)
+              block.call(:class_exit_exception, self, method, *args)
               raise e if exception
             else
-              block.call(:class_exit, klass, method, *args)
+              block.call(:class_exit, self, method, *args)
             end
             return val
           end
         end
-        #block.call(:class_wrap, klass, method, self.method(method))
-      end # klass.class_eval
+        #block.call(:class_wrap, self, method, self.method(method))
+      end # klass.instance_eval
     end # klass.instance_methods.each
 
     return true
@@ -222,17 +237,17 @@ Minstrel::Instrument.wrap_load
 # RUBY_INSTRUMENT=String ruby -rminstrel ./your/program
 if ENV["RUBY_INSTRUMENT"]
   klasses = ENV["RUBY_INSTRUMENT"].split(",")
+
+  callback = proc do |point, this, method, *args|
+    puts "#{point} #{this.to_s}##{method}(#{args.inspect}) (thread=#{Thread.current}, self=#{this.inspect})"
+  end
   if klasses.include?(":all:")
     instrument = Minstrel::Instrument.new 
-    instrument.wrap_all do |point, klass, method, *args|
-      puts "#{point} #{klass.to_s}##{method}(#{args.inspect})"
-    end
+    instrument.wrap_all &callback
   else
     klasses.each do |klassname|
       instrument = Minstrel::Instrument.new 
-      instrument.wrap_classname(klassname) do |point, klass, method, *args|
-        puts "#{point} #{klassname}##{method}(#{args.inspect})"
-      end
+      instrument.wrap_classname(klassname, &callback) 
     end
   end
 end
