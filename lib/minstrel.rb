@@ -51,7 +51,7 @@ module Minstrel; class Instrument
     if ancestors.include?("Exception")
       return true
     end
-    puts "Wrapping #{klass.class} #{klass}"
+    puts "Wrapping #{klass.class} #{klass}" if $DEBUG
 
     # Wrap class instance methods (like File#read)
     klass.instance_methods.each do |method|
@@ -75,10 +75,7 @@ module Minstrel; class Instrument
         orig_method_proc = klass.instance_method(method)
         alias_method orig_method, method
         #block.call(:wrap, klass, method)
-        puts "Wrapping #{klass.name}##{method} (method)"
-        if klass.is_a?(Module)
-          puts " -- Note, wrapping module methods is currently not working?"
-        end
+        puts "Wrapping #{klass.name}##{method} (method)" if $DEBUG
         define_method(method) do |*args, &argblock|
           exception = false
           block.call(:enter, self, method, *args)
@@ -126,7 +123,7 @@ module Minstrel; class Instrument
       end
 
       if skip
-        puts "Skipping #{klass}##{method} (do not wrap, not safe)"
+        puts "Skipping #{klass}##{method} (do not wrap, not safe)" if $DEBUG
         next
       end
 
