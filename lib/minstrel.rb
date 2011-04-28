@@ -23,6 +23,7 @@ module Minstrel; class Instrument
 
   class << self
     @@deferred_wraps = {}
+    @@deferred_method_wraps = {}
     @@wrapped = Set.new
   end
 
@@ -42,7 +43,7 @@ module Minstrel; class Instrument
   #   * this - the object instance in scope (use 'this.class' for the class)
   #   * method - the method (symbol) being called
   #   * *args - the arguments (array) passed to this method.
-  def wrap(klass, &block)
+  def wrap(klass, method_to_wrap=nil, &block)
     return true if @@wrapped.include?(klass)
     instrumenter = self # save 'self' for scoping below
     @@wrapped << klass
@@ -55,6 +56,8 @@ module Minstrel; class Instrument
 
     # Wrap class instance methods (like File#read)
     klass.instance_methods.each do |method|
+      next if !method_to_wrap.nil? and method != method_to_wrap
+
       method = method.to_sym
 
       # If we shouldn't wrap a certain class method, skip it.
@@ -78,6 +81,7 @@ module Minstrel; class Instrument
         puts "Wrapping #{klass.name}##{method} (method)" if $DEBUG
         define_method(method) do |*args, &argblock|
           exception = false
+          puts "#{method}, #{self}"
           block.call(:enter, self, method, *args)
           begin
             # TODO(sissel): Not sure which is better:
@@ -104,6 +108,7 @@ module Minstrel; class Instrument
 
     # Wrap class methods (like File.open)
     klass.methods.each do |method|
+      next if !method_to_wrap.nil? and method != method_to_wrap
       method = method.to_sym
       # If we shouldn't wrap a certain class method, skip it.
       skip = false
@@ -169,13 +174,26 @@ module Minstrel; class Instrument
   def wrap_classname(klassname, &block)
     begin
       klass = eval(klassname)
-      self.wrap(klass, &block) 
+      wrap(klass, &block) 
       return true
     rescue NameError => e
       @@deferred_wraps[klassname] = block
     end
     return false
   end
+
+  def wrap_method(fullname, &block)
+    puts "Want to wrap #{fullname}" if $DEBUG
+    begin
+      klassname, method = fullname.split(/[#.]/, 2)
+      klass = eval(klassname)
+      wrap(klass, method, &block)
+      return true
+    rescue NameError => e
+      @@deferred_method_wraps[fullname] = block
+      return false
+    end
+  end # def wrap_method
 
   def wrap_all(&block)
     @@deferred_wraps[:all] = block
@@ -222,6 +240,16 @@ module Minstrel; class Instrument
           @@deferred_wraps.delete(klassname) if !all
         end
       end
+
+      klassmethods = @@deferred_method_wraps.keys
+      klassmethods.each do |fullname|
+        block = @@deferred_method_wraps[fullname]
+        instrument = Minstrel::Instrument.new
+        if instrument.wrap_method(fullname, &block)
+          $stderr.puts "Wrap of #{fullname} successful"
+          @@deferred_method_wraps.delete(fullname)
+        end
+      end
     end
     return ret
   end
@@ -236,15 +264,20 @@ if ENV["RUBY_INSTRUMENT"]
   klasses = ENV["RUBY_INSTRUMENT"].split(",")
 
   callback = proc do |point, this, method, *args|
-    puts "#{point} #{this.to_s}##{method}(#{args.inspect}) (thread=#{Thread.current}, self=#{this.inspect})"
+    puts "#{point} #{this.class.to_s}##{method}(#{args.inspect}) (thread=#{Thread.current}, self=#{this.inspect})"
   end
+  instrument = Minstrel::Instrument.new 
   if klasses.include?(":all:")
-    instrument = Minstrel::Instrument.new 
-    instrument.wrap_all &callback
+    instrument.wrap_all(&callback)
   else
     klasses.each do |klassname|
-      instrument = Minstrel::Instrument.new 
-      instrument.wrap_classname(klassname, &callback) 
-    end
-  end
-end
+      if klassname =~ /[#.]/ # Someone's asking for a specific method to wrap
+        # This will wrap one method as indicated by: ClassName#method
+        # TODO(sissel): Maybe also allow ModuleName::method
+        instrument.wrap_method(klassname, &callback) 
+      else
+        instrument.wrap_classname(klassname, &callback) 
+      end
+    end # klasses.each
+  end 
+end # if ENV["RUBY_INSTRUMENT"]
