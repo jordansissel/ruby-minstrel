@@ -81,7 +81,6 @@ module Minstrel; class Instrument
         puts "Wrapping #{klass.name}##{method} (method)" if $DEBUG
         define_method(method) do |*args, &argblock|
           exception = false
-          puts "#{method}, #{self}"
           block.call(:enter, self, method, *args)
           begin
             # TODO(sissel): Not sure which is better:
