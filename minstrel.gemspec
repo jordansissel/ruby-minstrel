@@ -6,9 +6,8 @@ Gem::Specification.new do |spec|
     "./minstrel.gemspec",
   ]
 
-  rev = Time.now.strftime("%Y%m%d%H%M%S")
   spec.name = "minstrel"
-  spec.version = "0.2.#{rev}"
+  spec.version = "0.3.0"
   spec.summary = "minstrel - a ruby instrumentation tool"
   spec.description = "Instrument class methods"
   spec.files = files

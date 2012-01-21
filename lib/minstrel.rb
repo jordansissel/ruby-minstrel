@@ -1,24 +1,106 @@
 # Wrap method calls for a class of your choosing.
 # Example:
-# instrument = Minstrel::Instrument.new()
-# instrument.wrap(String) do |point, klass, method, *args|
-#   ...
-# end
 #
-#  * point is either :enter or :exit depending if this function is about to be
-#    called or has finished being called.
-#  * klass is the class object (String, etc)
-#  * method is the method (a Symbol)
-#  * *args is the arguments passed
+#     instrument = Minstrel::Instrument.new()
+#     instrument.observe(class_or_method) { |event| ... }
+#
+# The 'event' is a Minstrel::Event.
 #
 # You can also wrap from the command-line
-#
-# RUBY_INSTRUMENT=comma_separated_classnames ruby -rminstrel ./your/program.rb
+#     RUBY_INSTRUMENT=comma_separated_classnames ruby -rminstrel ./your/program.rb
 #
 
-TraceEvent = Struct.new(:action, :file, :line, :method, :binding, :class, :args)
+module Minstrel; end
 
-module Minstrel; class Instrument
+class Minstrel::Event
+  attr_accessor :action
+  attr_accessor :file
+  attr_accessor :line
+  attr_accessor :method
+  attr_accessor :binding
+  attr_accessor :class
+  attr_accessor :args_hash
+  attr_accessor :args_order
+  attr_accessor :timestamp
+
+  # Duration is only valid for 'return' or 'c-return' events
+  attr_accessor :duration
+
+  # The call stack depth of this event
+  attr_accessor :depth
+
+  public
+  def initialize(action, file, line, method, binding, klass)
+    @action = action
+    @file = file
+    @line = line
+    @method = method
+    @binding = binding
+    @class = klass
+    @timestamp = Time.now
+
+    if ["c-call", "call"].include?(@action)
+      @args_hash = {}
+      @args_order = eval('local_variables', binding)
+
+      # In ruby 1.9, local_variables returns an array of symbols, not strings.
+      @args_order.collect { |v| @args_hash[v] = eval(v.to_s, binding) }
+    end
+
+    @block_given = eval('block_given?', @binding)
+  end # def initialize
+
+  # Get the call args as an array in-order
+  public
+  def args
+    return nil unless @args_order
+    return @args_order.collect { |v| @args_hash[v] }
+  end # def args
+
+  public
+  def use_related_event(event)
+    @args_order = event.args_order
+    @args_hash = event.args_hash
+    @block_given = event.block_given?
+    @duration = @timestamp - event.timestamp
+  end # def use_related_event
+
+  # Is this event a method entry?
+  public
+  def entry?
+    return ["c-call", "call"].include?(action)
+  end # def entry?
+
+  # Is this event a method return?
+  public
+  def exit?
+    return ["c-return", "return"].include?(action)
+  end # def exit?
+
+  # Was there a block given to this method?
+  public
+  def block_given?
+    @block_given
+  end # def block_given ?
+
+  public
+  def symbol
+    case @action
+      when "c-call", "call" ; return "=>"
+      when "c-return", "return" ; return "<="
+      when "raise"; return "<E"
+      else return " +"
+    end
+  end # def symbol
+
+  public
+  def to_s
+    return "#{"  " * @depth}#{symbol} #{@class.to_s}##{@method}(#{args.inspect}) #{block_given? ? "{ ... }" : ""} (thread=#{Thread.current}) #{@duration.nil? ? "" : sprintf("(%.5f seconds)", @duration)}"
+  end # def to_s
+
+end # class Minstrel::Event
+
+class Minstrel::Instrument
   attr_accessor :counter
 
   public
@@ -29,20 +111,26 @@ module Minstrel; class Instrument
   public
   def initialize
     @observe = []
+    @stack = Hash.new { |h,k| h[k] = [] } # per thread
   end # def initialize
+
+  public
+  def stack
+    return @stack
+  end
 
   public
   def observe(thing=nil, &block)
     if !thing.nil?
-      p :observe => thing
       # Is thing a class name?
       @observe << lambda do |event| 
         if class?(thing)
-          if event.class.to_s == thing
+          if event.class.to_s == thing.to_s
             block.call(event) 
           end
         else
           # assume it's a method?
+          #p :observe => nil, :class => thing, :is => class?(thing)
           klass, method = thing.split(/[.#]/, 2)
           if (event.class.to_s == klass and event.method = method.to_sym)
             block.call(event)
@@ -56,12 +144,15 @@ module Minstrel; class Instrument
     end
   end # def observe
 
-  # Is the name here a class?
+  # Is the thing here a class?
+  # Can be a string name of a class or a class object
   private
-  def class?(name)
+  def class?(thing)
+    #p :method => "class?", :thing => thing, :class => thing.is_a?(Class), :foo => thing.inspect
     begin
-      return false if name.include?("#")
-      obj = eval(name)
+      return true if thing.is_a?(Class)
+      return false if (thing.is_a?(String) and thing.include?("#"))
+      obj = eval(thing)
       return obj.is_a?(Class)
     rescue => e
       false
@@ -83,17 +174,34 @@ module Minstrel; class Instrument
   # This method is invoked by the ruby tracer
   private
   def trace_callback(action, file, line, method, binding, klass)
-    return unless action == "c-call"
-    event = TraceEvent.new(action, file, line, method, binding, klass)
-    # At the time of "c-call" there's no other local variables other than
-    # the method arguments. Pull the args out of binding
-    #eval('args = local_variables.collect { |v| "(#{v}) #{v.inspect}" }', binding)
-    eval('p :local => local_variables', binding)
-    #event.args = args
+    begin
+      event = Minstrel::Event.new(action, file, line, method, binding, klass)
+      # At the time of "c-call" there's no other local variables other than
+      # the method arguments. Pull the args out of binding
+      #event.args = eval('local_variables.collect { |v| "(#{v}) #{v.inspect}" }', binding)
+      if ["c-call", "call"].include?(action)
+        @stack[Thread.current].push event
+        event.depth = @stack[Thread.current].size
+      elsif ["c-return", "return", "raise"].include?(action)
+        # TODO(sissel): validate top of stack looks right?
+        event.depth = @stack[Thread.current].size
+        entry_event = @stack[Thread.current].pop
+        if !entry_event.nil?
+          event.use_related_event(entry_event)
+        end
+      else
+        event.depth = @stack[Thread.current].size
+      end
 
-    @observe.each { |callback| callback.call(event) }
+      # Call any observers
+      @observe.each { |callback| callback.call(event) }
+    rescue => e
+      $stderr.puts "Exception in trace_callback: #{e}"
+      $stderr.puts e.backtrace
+      raise e
+    end
   end # def trace_callback
-end; end # class Minstrel::Instrument
+end # class Minstrel::Instrument
 
 # Provide a way to instrument a class using the command line:
 # RUBY_INSTRUMENT=String ruby -rminstrel ./your/program
@@ -101,7 +209,9 @@ if ENV["RUBY_INSTRUMENT"]
   klasses = ENV["RUBY_INSTRUMENT"].split(",")
 
   callback = proc do |event|
-    puts "#{event.action} #{event.class.to_s}##{event.method}(#{event.args.inspect}) (thread=#{Thread.current})"
+    # Only show entry or exits
+    next unless (event.entry? or event.exit?)
+    puts event
   end
 
   instrument = Minstrel::Instrument.new 
