@@ -39,22 +39,42 @@ class Minstrel::Event
     @class = klass
     @timestamp = Time.now
 
+    @block_given = nil
+
     if ["c-call", "call"].include?(@action)
       @args_hash = {}
-      @args_order = eval('local_variables', binding)
+      #@args_order = eval('local_variables', binding, __FILE__, __LINE__)
 
       # In ruby 1.9, local_variables returns an array of symbols, not strings.
-      @args_order.collect { |v| @args_hash[v] = eval(v.to_s, binding) }
+      #@args_order.collect { |v| @args_hash[v] = eval(v.to_s, binding, __FILE__, __LINE__) }
+    else
+      @args_order = nil
+      @args_hash = {}
     end
+    @duration = nil
 
-    @block_given = eval('block_given?', @binding)
+    #@block_given = eval('block_given?', @binding, __FILE__, __LINE__)
   end # def initialize
+
+  def args_order
+    # Lazy lookup + cache
+    #return @args_order ||= eval('local_variables', @binding, __FILE__, __LINE__)
+    return []
+  end # def args_order
+  
+  def args_hash
+    # Lazy lookup + cache
+    if @args_hash.empty?
+      #args_order.collect { |v| @args_hash[v] = eval(v.to_s, @binding, __FILE__, __LINE__) }
+    end
+    return @args_hash
+  end # def args_hash
 
   # Get the call args as an array in-order
   public
   def args
-    return nil unless @args_order
-    return @args_order.collect { |v| @args_hash[v] }
+    return nil unless args_order
+    return args_order.collect { |v| args_hash[v] }
   end # def args
 
   public
@@ -124,7 +144,7 @@ class Minstrel::Instrument
     if !thing.nil?
       # Is thing a class name?
       @observe << lambda do |event| 
-        if class?(thing)
+        if class?(thing, event.binding)
           if event.class.to_s == thing.to_s
             block.call(event) 
           end
@@ -147,15 +167,26 @@ class Minstrel::Instrument
   # Is the thing here a class?
   # Can be a string name of a class or a class object
   private
-  def class?(thing)
+  def class?(thing, binding)
     #p :method => "class?", :thing => thing, :class => thing.is_a?(Class), :foo => thing.inspect
     begin
       return true if thing.is_a?(Class)
       return false if (thing.is_a?(String) and thing.include?("#"))
-      obj = eval(thing)
+      begin
+        parts = thing.split("::")
+        # Look for "Foo::Bar::Baz"
+        obj = Kernel
+        parts.each do |part|
+          obj = obj.const_get(part)
+        end
+      rescue NameError
+        # Sometimes a global constant won't be accessible without :: prefix.
+        #obj = eval("::#{thing}", binding, __FILE__, __LINE__)
+        return false
+      end
       return obj.is_a?(Class)
     rescue => e
-      false
+      return false
     end
   end # def class?
 
@@ -178,7 +209,6 @@ class Minstrel::Instrument
       event = Minstrel::Event.new(action, file, line, method, binding, klass)
       # At the time of "c-call" there's no other local variables other than
       # the method arguments. Pull the args out of binding
-      #event.args = eval('local_variables.collect { |v| "(#{v}) #{v.inspect}" }', binding)
       if ["c-call", "call"].include?(action)
         @stack[Thread.current].push event
         event.depth = @stack[Thread.current].size
@@ -208,10 +238,13 @@ end # class Minstrel::Instrument
 if ENV["RUBY_INSTRUMENT"]
   klasses = ENV["RUBY_INSTRUMENT"].split(",")
 
+  #output = File.new("/tmp/minstrel.out", "w")
+  output = $stderr
+
   callback = proc do |event|
     # Only show entry or exits
     next unless (event.entry? or event.exit?)
-    puts event
+    output.puts event
   end
 
   instrument = Minstrel::Instrument.new 
